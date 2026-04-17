@@ -1,7 +1,18 @@
-import React from 'react'
+import React, { useState } from 'react'
 import CleanSmartForm from './components/CleanSmartForm'
+import CleanSmartData from './components/CleanSmartData'
+
+type View = 'form' | 'data'
 
 const App: React.FC = () => {
+  const [view, setView] = useState<View>('form')
+  const [responseData, setResponseData] = useState<unknown>(null)
+
+  const handleSuccess = (data: unknown) => {
+    setResponseData(data)
+    setView('data')
+  }
+
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center px-4 py-10"
@@ -22,9 +33,13 @@ const App: React.FC = () => {
         {/* Divider fin */}
         <div className="h-px bg-gray-100 mx-5" />
 
-        {/* Form */}
+        {/* Contenu : formulaire ou données */}
         <div className="px-5 pt-4 pb-5">
-          <CleanSmartForm />
+          {view === 'form' ? (
+            <CleanSmartForm onSuccess={handleSuccess} />
+          ) : (
+            <CleanSmartData data={responseData} />
+          )}
         </div>
 
         {/* Tagline — texte noir */}
