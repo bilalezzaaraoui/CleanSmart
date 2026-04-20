@@ -1,1 +1,54 @@
 @import "tailwindcss";
+
+/* ── Wave progress bar ──────────────────────────────────────────────────── */
+/*
+ * .wave-bar: the filled portion of the progress bar.
+ * A diagonal shimmer gradient is animated sliding left→right to create
+ * the illusion of flowing water / wave motion inside the bar.
+ */
+.wave-bar {
+  background: linear-gradient(
+    90deg,
+    #1B7ED4 0%,
+    #1B7ED4 40%,
+    #4fa3e8 50%,
+    #1B7ED4 60%,
+    #1B7ED4 100%
+  );
+  background-size: 200% 100%;
+  animation: wave-slide 1.8s ease-in-out infinite;
+}
+
+@keyframes wave-slide {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ── Countdown ring ─────────────────────────────────────────────────────── */
+/*
+ * .countdown-ring-fill: the SVG circle that empties over 10 s.
+ * stroke-dashoffset is animated from 0 (full) to the full circumference (empty).
+ * The JS sets --circumference and --duration via inline style.
+ */
+.countdown-ring-fill {
+  stroke-dasharray: var(--circumference);
+  stroke-dashoffset: 0;
+  animation: ring-empty var(--duration, 10s) linear forwards;
+  transform-origin: center;
+  transform: rotate(-90deg);
+}
+
+@keyframes ring-empty {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: var(--circumference); }
+}
+
+/* ── Fade-in for data panel ─────────────────────────────────────────────── */
+.fade-in {
+  animation: fade-in 0.5s ease both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

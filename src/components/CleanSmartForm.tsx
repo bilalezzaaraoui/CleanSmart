@@ -40,7 +40,7 @@ function validateCsvColumns(csvText: string, type: string): string | null {
 }
 
 interface CleanSmartFormProps {
-  onSuccess: (data: unknown) => void
+  onSuccess: (data: unknown, agencyType: AgencyType, agent: AgentName) => void
 }
 
 const CleanSmartForm: React.FC<CleanSmartFormProps> = ({ onSuccess }) => {
@@ -87,7 +87,7 @@ const CleanSmartForm: React.FC<CleanSmartFormProps> = ({ onSuccess }) => {
     })
 
     if (result.ok) {
-      onSuccess(result.data)
+      onSuccess(result.data, agencyType, agent)
     }
   }
 

@@ -3,14 +3,24 @@ import CleanSmartForm from './components/CleanSmartForm'
 import CleanSmartData from './components/CleanSmartData'
 
 type View = 'form' | 'data'
+type AgencyType = 'Mandataire' | 'Agence'
+type AgentName = 'Bilal' | 'Younes'
 
 const App: React.FC = () => {
   const [view, setView] = useState<View>('form')
-  const [responseData, setResponseData] = useState<unknown>(null)
+  const [agencyType, setAgencyType] = useState<AgencyType | null>(null)
+  const [agent, setAgent] = useState<AgentName | null>(null)
 
-  const handleSuccess = (data: unknown) => {
-    setResponseData(data)
+  const handleSuccess = (_data: unknown, type: AgencyType, name: AgentName) => {
+    setAgencyType(type)
+    setAgent(name)
     setView('data')
+  }
+
+  const handleReset = () => {
+    setAgencyType(null)
+    setAgent(null)
+    setView('form')
   }
 
   return (
@@ -38,7 +48,11 @@ const App: React.FC = () => {
           {view === 'form' ? (
             <CleanSmartForm onSuccess={handleSuccess} />
           ) : (
-            <CleanSmartData data={responseData} />
+            <CleanSmartData
+              agencyType={agencyType!}
+              agent={agent!}
+              onReset={handleReset}
+            />
           )}
         </div>
 
