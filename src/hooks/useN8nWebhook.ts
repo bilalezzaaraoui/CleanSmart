@@ -24,6 +24,8 @@ interface WebhookState {
 export interface TriggerResult {
   ok: boolean
   data: unknown
+  /** N8N execution ID returned by the production webhook (async mode). */
+  executionId: string | null
 }
 
 interface UseN8nWebhookReturn extends WebhookState {
@@ -71,8 +73,16 @@ export function useN8nWebhook(): UseN8nWebhookReturn {
           errorMessage: msg,
           responseData: null,
         })
-        return { ok: false, data: null }
+        return { ok: false, data: null, executionId: null }
       }
+
+      // Production webhook responds immediately with { executionId } (async mode).
+      // N8N may return the ID as a number or string, and also exposes it in the
+      // x-n8n-execution-id response header as a fallback.
+      const idFromBody = json?.executionId ?? json?.id ?? null
+      const idFromHeader = response.headers.get('x-n8n-execution-id')
+      const rawId = idFromBody ?? idFromHeader
+      const executionId: string | null = rawId !== null ? String(rawId) : null
 
       setState({
         isLoading: false,
@@ -81,7 +91,7 @@ export function useN8nWebhook(): UseN8nWebhookReturn {
         errorMessage: null,
         responseData: json,
       })
-      return { ok: true, data: json }
+      return { ok: true, data: json, executionId }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Une erreur inconnue est survenue.'
       setState({
@@ -91,7 +101,7 @@ export function useN8nWebhook(): UseN8nWebhookReturn {
         errorMessage: msg,
         responseData: null,
       })
-      return { ok: false, data: null }
+      return { ok: false, data: null, executionId: null }
     }
   }, [])
 

@@ -7,6 +7,7 @@ type AgentName = 'Bilal' | 'Younes'
 interface CleanSmartDataProps {
   agencyType: AgencyType
   agent: AgentName
+  executionId: string | null
   onReset: () => void
 }
 
@@ -157,14 +158,66 @@ const RefreshTimer: React.FC<{ lastUpdatedAt: number | null }> = ({ lastUpdatedA
   )
 }
 
+/** Confirmation modal before stopping the workflow. */
+const StopConfirmModal: React.FC<{
+  executionId: string
+  onConfirm: () => void
+  onCancel: () => void
+}> = ({ executionId, onConfirm, onCancel }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    {/* Backdrop */}
+    <div
+      className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      onClick={onCancel}
+    />
+
+    {/* Dialog */}
+    <div className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl p-5 flex flex-col gap-4">
+      <div className="flex items-start gap-3">
+        <span className="flex shrink-0 h-9 w-9 items-center justify-center rounded-full bg-red-100 text-red-500 text-lg">
+          ⚠️
+        </span>
+        <div>
+          <p className="text-sm font-bold text-gray-900">Arrêter le workflow ?</p>
+          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+            L'exécution <span className="font-mono font-semibold text-gray-600">#{executionId}</span> sera stoppée immédiatement. Cette action est irréversible.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-all cursor-pointer"
+        >
+          Annuler
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="flex-1 rounded-xl bg-red-500 hover:bg-red-600 active:bg-red-700 px-4 py-2.5 text-sm font-semibold text-white transition-all active:scale-[0.98] cursor-pointer"
+        >
+          Oui, stopper
+        </button>
+      </div>
+    </div>
+  </div>
+)
+
 /**
  * Displayed after a successful form submission.
  * Shows a 10-second countdown ring first, then reveals the live stats panel.
  * Polls Google Sheets every 5 s for lead metrics.
  * Blocks navigation while active (refresh, back, tab close).
  */
-const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, onReset: _onReset }) => {
+const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, executionId, onReset }) => {
   const [countdownDone, setCountdownDone] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [isStopping, setIsStopping] = useState(false)
+  const [stopError, setStopError] = useState<string | null>(null)
+  const [stopped, setStopped] = useState(false)
+
   const { total, treated, ok, pct, loading, error, lastUpdatedAt } = useSheetStats(agencyType, agent)
 
   // Prevent accidental navigation (refresh, back, tab close) while on this page
@@ -179,54 +232,128 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, onRe
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
 
+  const confirmStop = async () => {
+    setShowConfirm(false)
+    if (!executionId || isStopping || stopped) return
+    setIsStopping(true)
+    setStopError(null)
+    try {
+      const res = await fetch('/api/stop-workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ executionId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(json?.error ?? `Erreur ${res.status}`)
+      }
+      setStopped(true)
+      // Redirect to the form after a short pause so the user sees the "stopped" state
+      setTimeout(onReset, 1_500)
+    } catch (err) {
+      setStopError(err instanceof Error ? err.message : 'Erreur inconnue')
+    } finally {
+      setIsStopping(false)
+    }
+  }
+
   if (!countdownDone) {
     return <CountdownScreen onDone={() => setCountdownDone(true)} />
   }
 
   return (
-    <div className="flex flex-col gap-4 fade-in">
-
-      {/* Header — icon and title side by side */}
-      <div className="flex items-center gap-2.5">
-        <span className="flex shrink-0 h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 text-lg">
-          ✓
-        </span>
-        <div>
-          <p className="text-sm font-semibold text-gray-800">CSV reçu</p>
-          <p className="text-[11px] text-gray-400 font-medium">
-            {agencyType} · {agent}
-          </p>
-        </div>
-      </div>
-
-      {/* Error banner */}
-      {error && (
-        <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2 text-center leading-relaxed">
-          {error}
-        </p>
+    <>
+      {/* Confirmation modal — rendered outside the card flow */}
+      {showConfirm && executionId && (
+        <StopConfirmModal
+          executionId={executionId}
+          onConfirm={confirmStop}
+          onCancel={() => setShowConfirm(false)}
+        />
       )}
 
-      {/* Stat cards */}
-      <div className="flex gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
-        <StatCard label="Total" value={total} loading={loading} />
+      <div className="flex flex-col gap-4 fade-in">
 
-        <div className="w-px bg-gray-200 self-stretch" />
+        {/* Header — icon and title side by side */}
+        <div className="flex items-center gap-2.5">
+          <span className="flex shrink-0 h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 text-lg">
+            ✓
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-gray-800">CSV reçu</p>
+            <p className="text-[11px] text-gray-400 font-medium">
+              {agencyType} · {agent}
+            </p>
+          </div>
+        </div>
 
-        <StatCard label="Traités" value={treated} loading={loading} />
+        {/* Error banner (Sheets) */}
+        {error && (
+          <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2 text-center leading-relaxed">
+            {error}
+          </p>
+        )}
 
-        <div className="w-px bg-gray-200 self-stretch" />
+        {/* Stat cards */}
+        <div className="flex gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <StatCard label="Total" value={total} loading={loading} />
 
-        <StatCard label="OK" value={ok} loading={loading} />
+          <div className="w-px bg-gray-200 self-stretch" />
+
+          <StatCard label="Traités" value={treated} loading={loading} />
+
+          <div className="w-px bg-gray-200 self-stretch" />
+
+          <StatCard label="OK" value={ok} loading={loading} />
+        </div>
+
+        {/* Wave progress bar */}
+        <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+          <WaveBar pct={pct} loading={loading} />
+        </div>
+
+        {/* Refresh timestamp */}
+        <RefreshTimer lastUpdatedAt={lastUpdatedAt} />
+
+        {/* Stop workflow button */}
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowConfirm(true)}
+            disabled={isStopping || stopped || !executionId}
+            className={`w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.98]
+              ${stopped
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : isStopping
+                  ? 'bg-red-300 text-white cursor-not-allowed'
+                  : !executionId
+                    ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                    : 'bg-red-500 hover:bg-red-600 active:bg-red-700 text-white cursor-pointer'
+              }`}
+          >
+            {stopped
+              ? '■ Workflow arrêté'
+              : isStopping
+                ? 'Arrêt en cours…'
+                : '■ Stop le workflow'}
+          </button>
+
+          {/* No executionId warning */}
+          {!executionId && !stopped && (
+            <p className="text-[11px] text-gray-300 text-center">
+              Pas d'executionId — vérifie la config du webhook N8N
+            </p>
+          )}
+
+          {/* Stop error */}
+          {stopError && (
+            <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2 text-center leading-relaxed">
+              {stopError}
+            </p>
+          )}
+        </div>
       </div>
-
-      {/* Wave progress bar */}
-      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-        <WaveBar pct={pct} loading={loading} />
-      </div>
-
-      {/* Refresh timestamp */}
-      <RefreshTimer lastUpdatedAt={lastUpdatedAt} />
-    </div>
+    </>
   )
 }
 

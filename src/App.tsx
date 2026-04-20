@@ -10,16 +10,19 @@ const App: React.FC = () => {
   const [view, setView] = useState<View>('form')
   const [agencyType, setAgencyType] = useState<AgencyType | null>(null)
   const [agent, setAgent] = useState<AgentName | null>(null)
+  const [executionId, setExecutionId] = useState<string | null>(null)
 
-  const handleSuccess = (_data: unknown, type: AgencyType, name: AgentName) => {
+  const handleSuccess = (_data: unknown, type: AgencyType, name: AgentName, execId: string | null) => {
     setAgencyType(type)
     setAgent(name)
+    setExecutionId(execId)
     setView('data')
   }
 
   const handleReset = () => {
     setAgencyType(null)
     setAgent(null)
+    setExecutionId(null)
     setView('form')
   }
 
@@ -51,6 +54,7 @@ const App: React.FC = () => {
             <CleanSmartData
               agencyType={agencyType!}
               agent={agent!}
+              executionId={executionId}
               onReset={handleReset}
             />
           )}
@@ -58,7 +62,7 @@ const App: React.FC = () => {
 
         {/* Tagline — texte noir */}
         <p className="text-center text-sm font-semibold text-gray-900 pb-5 px-6">
-          ❤️ Nique Andrey forever
+          🚀 Chaque lead compte. Vas-y.
         </p>
       </div>
     </div>

@@ -17,6 +17,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/n8n/, ''),
       },
+      // In dev, forward /api/* to the local Vercel dev server (vercel dev runs on 3000).
+      // Run `vercel dev` instead of `npm run dev` to get the Vercel Functions working locally.
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
     },
   },
 })
