@@ -55,7 +55,7 @@ const App: React.FC = () => {
       style={{ backgroundColor: '#1B7ED4' }}
     >
       {/* Card — liseré léger + shadow prononcée comme dans le screenshot */}
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+      <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
 
         {/* Logo */}
         <div className="flex flex-col items-center pt-7 px-6">

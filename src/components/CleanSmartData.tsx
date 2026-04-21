@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useSheetStats } from '../hooks/useSheetStats'
+import { useWorkflowStatus } from '../hooks/useWorkflowStatus'
 
 type AgencyType = 'Mandataire' | 'Agence'
 type AgentName = 'Bilal' | 'Younes'
@@ -253,7 +254,30 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
   const [stopError, setStopError] = useState<string | null>(null)
   const [stopped, setStopped] = useState(false)
 
-  const { total, treated, ok, pct, loading, error, lastUpdatedAt } = useSheetStats(agencyType, agent)
+  // Pause Google Sheets polling once the workflow is stopped to avoid useless
+  // fetches and to freeze the "Actualisation dans X s" label.
+  const sheetsEnabled = !stopped && !isStopping
+  const { total, treated, ok, pct, loading, error, lastUpdatedAt } = useSheetStats(
+    agencyType,
+    agent,
+    sheetsEnabled,
+  )
+
+  // Poll n8n every 5s to check if the workflow is still running. We only start
+  // polling after the initial 10s countdown and stop as soon as the workflow
+  // has been (or is being) stopped manually — avoids a redundant redirect.
+  const pollingEnabled = countdownDone && !stopped && !isStopping
+  const { isActive, secondsUntilNextCheck } = useWorkflowStatus(executionId, pollingEnabled)
+
+  // Auto-redirect home when n8n confirms the execution is no longer active.
+  // Strict `=== false` avoids firing on the initial `null` state.
+  useEffect(() => {
+    if (isActive === false && !stopped && !isStopping) {
+      setStopped(true)
+      const id = setTimeout(onReset, 1_500)
+      return () => clearTimeout(id)
+    }
+  }, [isActive, stopped, isStopping, onReset])
 
   // Swap favicon to 🔄 while the workflow is running
   const restoreFaviconRef = useRef<(() => void) | null>(null)
@@ -341,6 +365,16 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
         />
       )}
 
+      {/* Tiny top-right poll countdown — parent card is `relative` (see App.tsx) */}
+      {pollingEnabled && executionId && (
+        <span
+          className="absolute top-2 right-3 text-[10px] font-medium text-gray-400 tabular-nums pointer-events-none"
+          aria-hidden="true"
+        >
+          {secondsUntilNextCheck}s
+        </span>
+      )}
+
       <div className="flex flex-col gap-4 fade-in">
 
         {/* Header — icon and title side by side */}
@@ -394,8 +428,8 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
           <WaveBar pct={pct} loading={loading} />
         </div>
 
-        {/* Refresh timestamp */}
-        <RefreshTimer lastUpdatedAt={lastUpdatedAt} />
+        {/* Refresh timestamp — hidden once polling is paused (workflow stopped) */}
+        {sheetsEnabled && <RefreshTimer lastUpdatedAt={lastUpdatedAt} />}
 
         {/* Stop workflow button */}
         <div className="flex flex-col gap-1.5">

@@ -70,9 +70,14 @@ const POLL_INTERVAL_MS = 5_000
  * since the sheet is accessible to anyone with the link), then extracts the
  * 3 values for the current (agencyType, agent) selection.
  *
- * Polling is paused automatically when the browser tab is hidden.
+ * Polling is paused automatically when the browser tab is hidden, and can be
+ * paused explicitly via the `enabled` flag (e.g. once the workflow is stopped).
  */
-export function useSheetStats(agencyType: AgencyType, agent: AgentName): SheetStats {
+export function useSheetStats(
+  agencyType: AgencyType,
+  agent: AgentName,
+  enabled: boolean = true,
+): SheetStats {
   const [stats, setStats] = useState<SheetStats>({
     total: null,
     treated: null,
@@ -126,9 +131,6 @@ export function useSheetStats(agencyType: AgencyType, agent: AgentName): SheetSt
   useEffect(() => {
     isMountedRef.current = true
 
-    // Reset to loading state whenever the selection changes
-    setStats({ total: null, treated: null, ok: null, pct: null, loading: true, error: null, lastUpdatedAt: null })
-
     const startPolling = () => {
       fetchStats()
       intervalRef.current = setInterval(fetchStats, POLL_INTERVAL_MS)
@@ -140,6 +142,18 @@ export function useSheetStats(agencyType: AgencyType, agent: AgentName): SheetSt
         intervalRef.current = null
       }
     }
+
+    // When disabled (e.g. workflow stopped), freeze the current stats and skip polling
+    if (!enabled) {
+      return () => {
+        isMountedRef.current = false
+        stopPolling()
+      }
+    }
+
+    // Reset to loading state whenever the selection changes (only when enabled,
+    // so we don't blank out frozen stats when pausing after a stop).
+    setStats({ total: null, treated: null, ok: null, pct: null, loading: true, error: null, lastUpdatedAt: null })
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -160,7 +174,7 @@ export function useSheetStats(agencyType: AgencyType, agent: AgentName): SheetSt
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [fetchStats])
+  }, [fetchStats, enabled])
 
   return stats
 }
