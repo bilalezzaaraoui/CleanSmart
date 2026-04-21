@@ -85,7 +85,7 @@ const CountdownScreen: React.FC<{ onDone: () => void }> = ({ onDone }) => {
 }
 
 /** Displays a single metric (number + label). Shows a skeleton while loading. */
-const StatCard: React.FC<{ label: string; value: number | null; loading: boolean }> = ({
+const StatCard: React.FC<{ label: React.ReactNode; value: number | null; loading: boolean }> = ({
   label,
   value,
   loading,
@@ -111,7 +111,7 @@ const WaveBar: React.FC<{ pct: number | null; loading: boolean }> = ({ pct, load
   return (
     <div className="w-full space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-500">Taux Rdv OK / rdv traités</span>
+        <span className="text-xs font-semibold text-gray-500">Leads traités / total</span>
         {loading ? (
           <div className="h-4 w-8 rounded bg-gray-200 animate-pulse" />
         ) : (
@@ -136,24 +136,27 @@ const WaveBar: React.FC<{ pct: number | null; loading: boolean }> = ({ pct, load
   )
 }
 
-/** Shows elapsed seconds since lastUpdatedAt, refreshing every second. */
+/** Counts down the seconds until the next poll (POLL_INTERVAL_MS resets on each lastUpdatedAt change). */
 const RefreshTimer: React.FC<{ lastUpdatedAt: number | null }> = ({ lastUpdatedAt }) => {
-  const [elapsed, setElapsed] = useState(0)
+  const POLL_SECONDS = 5
+  const [remaining, setRemaining] = useState(POLL_SECONDS)
 
   useEffect(() => {
     if (lastUpdatedAt === null) return
-    setElapsed(0)
-    const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - lastUpdatedAt) / 1_000))
-    }, 1_000)
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - lastUpdatedAt) / 1_000)
+      setRemaining(Math.max(0, POLL_SECONDS - elapsed))
+    }
+    tick()
+    const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
   }, [lastUpdatedAt])
 
   if (lastUpdatedAt === null) return null
 
   return (
-    <p className="text-[11px] text-gray-400 text-center">
-      Actualisé il y a {elapsed} s
+    <p className="text-[11px] text-gray-500 text-center">
+      Actualisation dans {remaining} s
     </p>
   )
 }
@@ -206,6 +209,38 @@ const StopConfirmModal: React.FC<{
 )
 
 /**
+ * Renders an emoji as a favicon by drawing it on a canvas and converting to data URL.
+ * Uses getAttribute('href') (relative path) instead of .href (resolved URL) so the
+ * restore reliably points back to the original asset.
+ */
+function setEmojiFavicon(emoji: string): () => void {
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 32
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    ctx.font = '28px serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(emoji, 16, 16)
+  }
+  const link = document.querySelector<HTMLLinkElement>("link[rel~='icon']")
+  // getAttribute returns the raw relative path (e.g. "/favicon.png"), not the resolved URL
+  const originalHref = link?.getAttribute('href') ?? '/favicon.svg'
+  const originalType = link?.getAttribute('type') ?? 'image/svg+xml'
+  if (link) {
+    link.setAttribute('href', canvas.toDataURL('image/png'))
+    link.setAttribute('type', 'image/png')
+  }
+  return () => {
+    if (link) {
+      link.setAttribute('href', originalHref)
+      link.setAttribute('type', originalType)
+    }
+  }
+}
+
+/**
  * Displayed after a successful form submission.
  * Shows a 10-second countdown ring first, then reveals the live stats panel.
  * Polls Google Sheets every 5 s for lead metrics.
@@ -220,10 +255,23 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
 
   const { total, treated, ok, pct, loading, error, lastUpdatedAt } = useSheetStats(agencyType, agent)
 
-  // Prevent accidental navigation (refresh, back, tab close) while on this page
+  // Swap favicon to 🔄 while the workflow is running
+  const restoreFaviconRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    const restore = setEmojiFavicon('🔄')
+    restoreFaviconRef.current = restore
+    return restore
+  }, [])
+
+  // Restore favicon immediately when the workflow is stopped (before the unmount delay)
+  useEffect(() => {
+    if (stopped) restoreFaviconRef.current?.()
+  }, [stopped])
+
+  // Warn the user before leaving so they know the workflow will be auto-stopped
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const message = '⚠️ Arrête le workflow d\'abord'
+      const message = '⚠️ Le workflow sera arrêté automatiquement si vous quittez.'
       e.preventDefault()
       e.returnValue = message
       return message
@@ -231,6 +279,27 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
+
+  /**
+   * When the page is actually being unloaded (after the user confirms leaving),
+   * send a stop request via sendBeacon. Unlike fetch, sendBeacon is guaranteed
+   * to complete even after the page closes — it's the only reliable way to fire
+   * a network request on tab/browser close.
+   * We skip this if the workflow was already stopped manually.
+   */
+  useEffect(() => {
+    const handlePageHide = () => {
+      if (!executionId || stopped) return
+      const blob = new Blob(
+        [JSON.stringify({ executionId })],
+        { type: 'application/json' },
+      )
+      navigator.sendBeacon('/api/stop-workflow', blob)
+      sessionStorage.removeItem('cleansmart_executionId')
+    }
+    window.addEventListener('pagehide', handlePageHide)
+    return () => window.removeEventListener('pagehide', handlePageHide)
+  }, [executionId, stopped])
 
   const confirmStop = async () => {
     setShowConfirm(false)
@@ -285,6 +354,19 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
               {agencyType} · {agent}
             </p>
           </div>
+
+          {/* OK rate badge: leads OK / total leads */}
+          <div className="ml-auto">
+            {loading ? (
+              <div className="h-6 w-14 rounded-full bg-gray-200 animate-pulse" />
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-600">
+                {total !== null && total > 0 && ok !== null
+                  ? `${Math.round((ok / total) * 100)} %`
+                  : '—'}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Error banner (Sheets) */}
@@ -296,15 +378,15 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
 
         {/* Stat cards */}
         <div className="flex gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
-          <StatCard label="Total" value={total} loading={loading} />
+          <StatCard label={<>Leads<br />total</>} value={total} loading={loading} />
 
           <div className="w-px bg-gray-200 self-stretch" />
 
-          <StatCard label="Traités" value={treated} loading={loading} />
+          <StatCard label={<>Leads<br />traités</>} value={treated} loading={loading} />
 
           <div className="w-px bg-gray-200 self-stretch" />
 
-          <StatCard label="OK" value={ok} loading={loading} />
+          <StatCard label={<>Leads<br />OK</>} value={ok} loading={loading} />
         </div>
 
         {/* Wave progress bar */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import CleanSmartForm from './components/CleanSmartForm'
 import CleanSmartData from './components/CleanSmartData'
 
@@ -6,16 +6,38 @@ type View = 'form' | 'data'
 type AgencyType = 'Mandataire' | 'Agence'
 type AgentName = 'Bilal' | 'Younes'
 
+const SESSION_KEY = 'cleansmart_executionId'
+
 const App: React.FC = () => {
   const [view, setView] = useState<View>('form')
   const [agencyType, setAgencyType] = useState<AgencyType | null>(null)
   const [agent, setAgent] = useState<AgentName | null>(null)
   const [executionId, setExecutionId] = useState<string | null>(null)
 
+  /**
+   * On mount, check if a previous execution was left dangling (e.g. the user
+   * refreshed mid-run and the pagehide beacon failed). If so, stop it silently
+   * and clear the stored ID so it doesn't linger across future sessions.
+   */
+  useEffect(() => {
+    const danglingId = sessionStorage.getItem(SESSION_KEY)
+    if (!danglingId) return
+    sessionStorage.removeItem(SESSION_KEY)
+    fetch('/api/stop-workflow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ executionId: danglingId }),
+    }).catch(() => {
+      // Best-effort: ignore errors since the execution may have already finished
+    })
+  }, [])
+
   const handleSuccess = (_data: unknown, type: AgencyType, name: AgentName, execId: string | null) => {
     setAgencyType(type)
     setAgent(name)
     setExecutionId(execId)
+    // Persist so the fallback auto-stop can fire if the page reloads
+    if (execId) sessionStorage.setItem(SESSION_KEY, execId)
     setView('data')
   }
 
@@ -23,6 +45,7 @@ const App: React.FC = () => {
     setAgencyType(null)
     setAgent(null)
     setExecutionId(null)
+    sessionStorage.removeItem(SESSION_KEY)
     setView('form')
   }
 

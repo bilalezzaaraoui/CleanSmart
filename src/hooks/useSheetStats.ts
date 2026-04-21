@@ -7,7 +7,7 @@ export interface SheetStats {
   total: number | null
   treated: number | null
   ok: number | null
-  /** Percentage of OK leads out of treated leads (0–100), null when not computable */
+  /** Percentage of treated leads out of total leads (0–100), null when not computable */
   pct: number | null
   loading: boolean
   error: string | null
@@ -105,8 +105,8 @@ export function useSheetStats(agencyType: AgencyType, agent: AgentName): SheetSt
       const treated = toNum(row[offset + 1])
       const ok = toNum(row[offset + 2])
       const pct =
-        treated !== null && treated > 0 && ok !== null
-          ? Math.round((ok / treated) * 100)
+        total !== null && total > 0 && treated !== null
+          ? Math.round((treated / total) * 100)
           : null
 
       if (isMountedRef.current) {
