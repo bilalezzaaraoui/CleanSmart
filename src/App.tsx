@@ -16,7 +16,8 @@ const App: React.FC = () => {
   const [agencyType, setAgencyType] = useState<AgencyType | null>(null);
   const [agent, setAgent] = useState<AgentName | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
-  const showHeader = page === "dashsmart" || (page === "cleansmart" && view === "form");
+  const showHeader =
+    page === "dashsmart" || (page === "cleansmart" && view === "form");
 
   /**
    * On mount, check if a previous execution was left dangling (e.g. the user
@@ -59,15 +60,23 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#1B7ED4" }}>
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ backgroundColor: "#1B7ED4" }}
+    >
       {showHeader && (
-        <header className="sticky top-0 z-20 w-full px-4 py-3" style={{ backgroundColor: "#1B7ED4" }}>
+        <header
+          className="sticky top-0 z-20 w-full px-4 py-3"
+          style={{ backgroundColor: "#1B7ED4" }}
+        >
           <nav className="mx-auto flex w-full max-w-sm items-center justify-center gap-2">
             <button
               type="button"
               onClick={() => setPage("cleansmart")}
               className={`cursor-pointer rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                page === "cleansmart" ? "bg-white text-[#1B7ED4]" : "text-white/80 hover:text-white"
+                page === "cleansmart"
+                  ? "bg-white text-[#1B7ED4]"
+                  : "text-white/80 hover:text-white"
               }`}
             >
               CleanSmart
@@ -76,7 +85,9 @@ const App: React.FC = () => {
               type="button"
               onClick={() => setPage("dashsmart")}
               className={`cursor-pointer rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                page === "dashsmart" ? "bg-white text-[#1B7ED4]" : "text-white/80 hover:text-white"
+                page === "dashsmart"
+                  ? "bg-white text-[#1B7ED4]"
+                  : "text-white/80 hover:text-white"
               }`}
             >
               DashSmart
@@ -123,7 +134,7 @@ const App: React.FC = () => {
       ) : (
         // DashSmart: large centered container at 97% width/height of the remaining viewport
         <main className="flex-1 flex items-center justify-center">
-          <div className="w-[97%] h-[97%] rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden flex">
+          <div className="w-[97%] h-[97%] rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden flex mb-8 mt-8">
             <DashSmart />
           </div>
         </main>

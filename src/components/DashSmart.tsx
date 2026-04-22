@@ -12,20 +12,27 @@ import {
 import { useAllSheets } from '../hooks/useAllSheets'
 import {
   METRIC_LABELS,
-  transformMonthSheet,
+  PERSONS,
   type MetricKey,
   type MonthComparison,
+  type Person,
+  type ShowRow,
+  transformMonthSheet,
 } from '../utils/conversionSheet'
 
-const METRIC_ORDER: MetricKey[] = ['calls', 'open50', 'openRate', 'rdv', 'convRate']
+// Display order for the 5 metric charts, matching the user-requested layout:
+// Nb d'appel/Show · Nb d'appels · Open rate · Open 50s · Rdv booké · % Conv.
+const METRIC_ORDER: MetricKey[] = ['calls', 'openRate', 'open50', 'rdv', 'convRate']
 
-// Distinct (Bilal, Romain) color pair per chart so each metric is visually unique.
-const METRIC_COLORS: Record<MetricKey, { bilal: string; romain: string }> = {
-  calls: { bilal: '#1B7ED4', romain: '#F97316' }, // blue / orange
-  open50: { bilal: '#10B981', romain: '#EF4444' }, // emerald / red
-  openRate: { bilal: '#8B5CF6', romain: '#F59E0B' }, // violet / amber
-  rdv: { bilal: '#0EA5E9', romain: '#EC4899' }, // sky / pink
-  convRate: { bilal: '#14B8A6', romain: '#F43F5E' }, // teal / rose
+// Distinct color per (metric × person) so each line is visually unique within
+// its own chart. Colors are intentionally reused across different metrics to
+// keep the palette compact.
+const METRIC_COLORS: Record<MetricKey, Record<Person, string>> = {
+  calls: { Bilal: '#1B7ED4', Romain: '#F97316', Younes: '#10B981' }, // blue / orange / emerald
+  open50: { Bilal: '#10B981', Romain: '#EF4444', Younes: '#6366F1' }, // emerald / red / indigo
+  openRate: { Bilal: '#8B5CF6', Romain: '#F59E0B', Younes: '#0EA5E9' }, // violet / amber / sky
+  rdv: { Bilal: '#0EA5E9', Romain: '#EC4899', Younes: '#22C55E' }, // sky / pink / green
+  convRate: { Bilal: '#14B8A6', Romain: '#F43F5E', Younes: '#8B5CF6' }, // teal / rose / violet
 }
 
 interface ChartCardProps {
@@ -39,7 +46,7 @@ interface ChartCardProps {
  */
 function computeAverage(
   data: MonthComparison['metrics'][MetricKey],
-  who: 'Bilal' | 'Romain',
+  who: Person,
 ): number | null {
   const values = data
     .map((d) => d[who])
@@ -59,10 +66,7 @@ function formatAvg(value: number | null, unit: string): string {
 
 const ChartCard: React.FC<ChartCardProps> = ({ metric, data }) => {
   const { label, unit } = METRIC_LABELS[metric]
-  const { bilal, romain } = METRIC_COLORS[metric]
-
-  const avgBilal = computeAverage(data, 'Bilal')
-  const avgRomain = computeAverage(data, 'Romain')
+  const colors = METRIC_COLORS[metric]
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -94,47 +98,119 @@ const ChartCard: React.FC<ChartCardProps> = ({ metric, data }) => {
               contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line
-              type="monotone"
-              dataKey="Bilal"
-              stroke={bilal}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-              activeDot={{ r: 5 }}
-              connectNulls
-            />
-            <Line
-              type="monotone"
-              dataKey="Romain"
-              stroke={romain}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-              activeDot={{ r: 5 }}
-              connectNulls
-            />
+            {PERSONS.map((p) => (
+              <Line
+                key={p}
+                type="monotone"
+                dataKey={p}
+                stroke={colors[p]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+                connectNulls
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       {/* Averages — shown under each person's name */}
-      <div className="mt-2 flex items-center justify-center gap-8 border-t border-gray-100 pt-2">
-        <div className="flex flex-col items-center">
-          <span className="text-[11px] font-semibold" style={{ color: bilal }}>
-            Bilal
-          </span>
-          <span className="text-xs font-bold text-gray-700 tabular-nums">
-            Moy. {formatAvg(avgBilal, unit)}
-          </span>
-        </div>
-        <div className="flex flex-col items-center">
-          <span className="text-[11px] font-semibold" style={{ color: romain }}>
-            Romain
-          </span>
-          <span className="text-xs font-bold text-gray-700 tabular-nums">
-            Moy. {formatAvg(avgRomain, unit)}
-          </span>
-        </div>
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 border-t border-gray-100 pt-2">
+        {PERSONS.map((p) => (
+          <div key={p} className="flex flex-col items-center">
+            <span className="text-[11px] font-semibold" style={{ color: colors[p] }}>
+              {p}
+            </span>
+            <span className="text-xs font-bold text-gray-700 tabular-nums">
+              Moy. {formatAvg(computeAverage(data, p), unit)}
+            </span>
+          </div>
+        ))}
       </div>
+    </div>
+  )
+}
+
+interface ShowTableCardProps {
+  rows: ShowRow[]
+}
+
+/**
+ * Computes how many calls are needed to generate one show (ratio = calls/shows).
+ * Returns null if any input is missing or if shows is 0 (avoid division by 0).
+ */
+function computeCallsPerShow(calls: number | null, shows: number | null): number | null {
+  if (calls === null || shows === null || shows === 0) return null
+  return calls / shows
+}
+
+/** Formats a ratio with one decimal, dropping trailing ".0" for integers. */
+function formatRatio(value: number | null): string {
+  if (value === null) return '—'
+  const rounded = Math.round(value * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
+/**
+ * Renders the "Nb d'appel pour un Show" side-table. The block title sits at
+ * the top of the card, and the table below lists every sales person with:
+ *   Nom du sales · Nb d'appels · Nb de show · Nb d'appel / Show (ratio).
+ */
+const ShowTableCard: React.FC<ShowTableCardProps> = ({ rows }) => {
+  return (
+    <div className="flex h-full flex-col rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+      <h3 className="mb-2 text-center text-sm font-semibold text-gray-700">
+        Nb d'appel pour un Show
+      </h3>
+
+      {rows.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center text-xs text-gray-400">
+          Aucune donnée
+        </div>
+      ) : (
+        // flex-1 stretches the wrapper to fill the remaining card height so the
+        // inner table can match the neighbouring chart cards' vertical size.
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <table className="h-full w-full table-fixed border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <th className="w-2/5 px-3 py-2">Nom du sales</th>
+                <th className="px-3 py-2 text-right">Nb d'appels</th>
+                <th className="px-3 py-2 text-right">Nb de show</th>
+                <th className="px-3 py-2 text-right">Appels / Show</th>
+              </tr>
+            </thead>
+            {/*
+              Setting table height:100% plus no fixed row heights lets the
+              browser distribute leftover space evenly across tbody rows,
+              producing a tidy "full bleed" table.
+            */}
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((r, idx) => (
+                <tr
+                  key={r.name}
+                  className={`transition-colors hover:bg-gray-50/80 ${
+                    idx % 2 === 1 ? 'bg-gray-50/40' : ''
+                  }`}
+                >
+                  <td className="px-3 align-middle font-semibold text-gray-800">
+                    {r.name}
+                  </td>
+                  <td className="px-3 align-middle text-right tabular-nums text-gray-700">
+                    {r.calls ?? '—'}
+                  </td>
+                  <td className="px-3 align-middle text-right tabular-nums text-gray-700">
+                    {r.shows ?? '—'}
+                  </td>
+                  <td className="px-3 align-middle text-right font-bold tabular-nums text-gray-900">
+                    {formatRatio(computeCallsPerShow(r.calls, r.shows))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -197,7 +273,9 @@ const DashSmart: React.FC = () => {
       <div className="mb-5 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-800">Suivi du taux de conversion</h1>
-          <p className="text-xs text-gray-400">Comparaison journalière Bilal vs Romain</p>
+          <p className="text-xs text-gray-400">
+            Comparaison journalière Bilal vs Romain vs Younes
+          </p>
         </div>
 
         <label className="flex items-center gap-2">
@@ -216,8 +294,16 @@ const DashSmart: React.FC = () => {
         </label>
       </div>
 
-      {/* Chart grid — 2 cols on large screens, 1 col on mobile */}
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Chart grid — 2 cols on large screens, 1 col on mobile.
+          5 charts + 1 show-table fill the 6-slot grid exactly.
+          `auto-rows-fr` makes every row share the remaining vertical space
+          equally so cards stretch to fill the container (no empty gap below).
+          `mb-6` keeps a consistent breathing gap above the page bottom — in
+          scrollable containers `padding-bottom` is often swallowed, whereas a
+          margin on the last flex child is always honored. */}
+      <div className="mb-6 grid flex-1 auto-rows-fr grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Show-table comes first, then the 5 metric charts in METRIC_ORDER. */}
+        <ShowTableCard rows={current.showData} />
         {METRIC_ORDER.map((metric) => (
           <ChartCard key={metric} metric={metric} data={current.metrics[metric]} />
         ))}
