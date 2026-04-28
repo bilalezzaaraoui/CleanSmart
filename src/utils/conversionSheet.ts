@@ -30,6 +30,9 @@
  *   Col 26 : Date maj data   (populated only on the first row)
  *
  * First 2 rows are headers; last row is "Total".
+ *
+ * Weekend rows (samedi / dimanche) in the tab’s calendar month are dropped from
+ * the Bilal / Romain / Younes charts; the show table is unchanged.
  */
 
 export type Person = 'Bilal' | 'Romain' | 'Younes'
@@ -90,6 +93,59 @@ function parseNum(raw: string | undefined): number | null {
   return isNaN(n) ? null : n
 }
 
+/** Lowercase ASCII month name after stripping accents (février → fevrier). */
+function normalizeFrenchMonthWord(raw: string): string {
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+/** Maps French month name (no accents) to JS month index 0–11. */
+const FRENCH_MONTH_TO_INDEX: Record<string, number> = {
+  janvier: 0,
+  fevrier: 1,
+  mars: 2,
+  avril: 3,
+  mai: 4,
+  juin: 5,
+  juillet: 6,
+  aout: 7,
+  septembre: 8,
+  octobre: 9,
+  novembre: 10,
+  decembre: 11,
+}
+
+/**
+ * Reads "Mars 2026" / "Avril 2026" from the sheet tab title (year at the end).
+ * Returns null if the title does not match — weekend filtering is then skipped.
+ */
+function parseSheetCalendarMonth(title: string): { year: number; monthIndex: number } | null {
+  const m = title.trim().match(/^(.+?)\s+(\d{4})\s*$/)
+  if (!m) return null
+  const monthKey = normalizeFrenchMonthWord(m[1])
+  const year = Number(m[2])
+  const monthIndex = FRENCH_MONTH_TO_INDEX[monthKey]
+  if (monthIndex === undefined || !Number.isFinite(year)) return null
+  return { year, monthIndex }
+}
+
+/**
+ * True when (year, monthIndex, day) is a real calendar day in that month and
+ * falls on Saturday or Sunday. Invalid dates (e.g. sheet quirks) return false
+ * so we keep the row rather than dropping data incorrectly.
+ */
+function dayIsWeekendInSheetMonth(day: number, year: number, monthIndex: number): boolean {
+  const d = new Date(year, monthIndex, day)
+  if (d.getFullYear() !== year || d.getMonth() !== monthIndex || d.getDate() !== day) {
+    return false
+  }
+  const dow = d.getDay()
+  return dow === 0 || dow === 6
+}
+
 interface DayMetrics {
   day: number
   calls: number | null
@@ -99,17 +155,24 @@ interface DayMetrics {
   convRate: number | null
 }
 
+/**
+ * A row is kept for a given person only when the "Jours" cell parses AND at
+ * least one metric cell is filled (zeros count). Template rows with only a
+ * day number and empty / #DIV/0! metrics are ignored so charts match manual
+ * entry (e.g. late-month placeholder rows in the sheet export).
+ */
 function parseDayBlock(row: string[], offset: number): DayMetrics | null {
   const day = parseNum(row[offset])
   if (day === null) return null
-  return {
-    day,
-    calls: parseNum(row[offset + 1]),
-    open50: parseNum(row[offset + 2]),
-    openRate: parseNum(row[offset + 3]),
-    rdv: parseNum(row[offset + 4]),
-    convRate: parseNum(row[offset + 5]),
+  const calls = parseNum(row[offset + 1])
+  const open50 = parseNum(row[offset + 2])
+  const openRate = parseNum(row[offset + 3])
+  const rdv = parseNum(row[offset + 4])
+  const convRate = parseNum(row[offset + 5])
+  if (calls === null && open50 === null && openRate === null && rdv === null && convRate === null) {
+    return null
   }
+  return { day, calls, open50, openRate, rdv, convRate }
 }
 
 const METRIC_KEYS: MetricKey[] = ['calls', 'open50', 'openRate', 'rdv', 'convRate']
@@ -155,6 +218,8 @@ function extractShowData(rows: string[][]): {
 }
 
 export function transformMonthSheet(title: string, rows: string[][]): MonthComparison {
+  const sheetCal = parseSheetCalendarMonth(title)
+
   // Skip the 2 header rows, drop the Total row and any fully empty rows.
   const dataRows = rows.slice(2).filter((r) => {
     const first = r[0]?.trim() ?? ''
@@ -168,6 +233,11 @@ export function transformMonthSheet(title: string, rows: string[][]): MonthCompa
       Younes: parseDayBlock(row, PERSON_OFFSETS.Younes),
     }))
     .filter((p) => p.Bilal !== null || p.Romain !== null || p.Younes !== null)
+    .filter((p) => {
+      if (!sheetCal) return true
+      const day = p.Bilal?.day ?? p.Romain?.day ?? p.Younes?.day ?? 0
+      return !dayIsWeekendInSheetMonth(day, sheetCal.year, sheetCal.monthIndex)
+    })
 
   const metrics = METRIC_KEYS.reduce((acc, key) => {
     acc[key] = parsed.map((blocks) => ({

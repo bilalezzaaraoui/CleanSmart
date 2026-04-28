@@ -389,14 +389,14 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
             </p>
           </div>
 
-          {/* OK rate badge: leads OK / total leads */}
+          {/* OK rate badge: leads OK / leads traités */}
           <div className="ml-auto">
             {loading ? (
               <div className="h-6 w-14 rounded-full bg-gray-200 animate-pulse" />
             ) : (
               <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-600">
-                {total !== null && total > 0 && ok !== null
-                  ? `${Math.round((ok / total) * 100)} %`
+                {treated !== null && treated > 0 && ok !== null
+                  ? `${Math.round((ok / treated) * 100)} %`
                   : '—'}
               </span>
             )}
