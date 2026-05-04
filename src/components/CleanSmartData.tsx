@@ -253,6 +253,7 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
   const [isStopping, setIsStopping] = useState(false)
   const [stopError, setStopError] = useState<string | null>(null)
   const [stopped, setStopped] = useState(false)
+  const [workflowError, setWorkflowError] = useState(false)
 
   // Pause Google Sheets polling once the workflow is stopped to avoid useless
   // fetches and to freeze the "Actualisation dans X s" label.
@@ -267,17 +268,22 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
   // polling after the initial 10s countdown and stop as soon as the workflow
   // has been (or is being) stopped manually — avoids a redundant redirect.
   const pollingEnabled = countdownDone && !stopped && !isStopping
-  const { isActive, secondsUntilNextCheck } = useWorkflowStatus(executionId, pollingEnabled)
+  const { isActive, finishedStatus, secondsUntilNextCheck } = useWorkflowStatus(executionId, pollingEnabled)
 
   // Auto-redirect home when n8n confirms the execution is no longer active.
-  // Strict `=== false` avoids firing on the initial `null` state.
+  // On error/crash we stay on the page so the user sees what happened.
   useEffect(() => {
     if (isActive === false && !stopped && !isStopping) {
+      const isError = finishedStatus === 'error' || finishedStatus === 'crashed'
       setStopped(true)
-      const id = setTimeout(onReset, 1_500)
-      return () => clearTimeout(id)
+      if (isError) {
+        setWorkflowError(true)
+      } else {
+        const id = setTimeout(onReset, 1_500)
+        return () => clearTimeout(id)
+      }
     }
-  }, [isActive, stopped, isStopping, onReset])
+  }, [isActive, finishedStatus, stopped, isStopping, onReset])
 
   // Swap favicon to 🔄 while the workflow is running
   const restoreFaviconRef = useRef<(() => void) | null>(null)
@@ -438,20 +444,24 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
             onClick={() => setShowConfirm(true)}
             disabled={isStopping || stopped || !executionId}
             className={`w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.98]
-              ${stopped
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : isStopping
-                  ? 'bg-red-300 text-white cursor-not-allowed'
-                  : !executionId
-                    ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                    : 'bg-red-500 hover:bg-red-600 active:bg-red-700 text-white cursor-pointer'
+              ${workflowError
+                ? 'bg-red-100 text-red-500 cursor-not-allowed'
+                : stopped
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : isStopping
+                    ? 'bg-red-300 text-white cursor-not-allowed'
+                    : !executionId
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                      : 'bg-red-500 hover:bg-red-600 active:bg-red-700 text-white cursor-pointer'
               }`}
           >
-            {stopped
-              ? '■ Workflow arrêté'
-              : isStopping
-                ? 'Arrêt en cours…'
-                : '■ Stop le workflow'}
+            {workflowError
+              ? '✗ Workflow terminé avec erreur'
+              : stopped
+                ? '✓ Workflow terminé'
+                : isStopping
+                  ? 'Arrêt en cours…'
+                  : '■ Stop le workflow'}
           </button>
 
           {/* No executionId warning */}
@@ -459,6 +469,22 @@ const CleanSmartData: React.FC<CleanSmartDataProps> = ({ agencyType, agent, exec
             <p className="text-[11px] text-gray-300 text-center">
               Pas d'executionId — vérifie la config du webhook N8N
             </p>
+          )}
+
+          {/* Workflow error (n8n returned error/crashed status) */}
+          {workflowError && (
+            <>
+              <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2 text-center leading-relaxed">
+                Le workflow s'est terminé avec une erreur. Vérifiez les logs N8N.
+              </p>
+              <button
+                type="button"
+                onClick={onReset}
+                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-all cursor-pointer"
+              >
+                Retour au formulaire
+              </button>
+            </>
           )}
 
           {/* Stop error */}

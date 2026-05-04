@@ -62,6 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       active,
       finished: Boolean(data?.finished),
       stoppedAt: data?.stoppedAt ?? null,
+      status: data?.status ?? null,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue'

@@ -6,6 +6,8 @@ const POLL_SECONDS = POLL_INTERVAL_MS / 1_000
 interface UseWorkflowStatusResult {
   /** null while the first check hasn't completed, then boolean. */
   isActive: boolean | null
+  /** n8n status string ('success' | 'error' | 'crashed' | 'waiting' | null). */
+  finishedStatus: string | null
   /** Seconds remaining until the next status check (from POLL_SECONDS down to 0). */
   secondsUntilNextCheck: number
 }
@@ -24,14 +26,14 @@ export function useWorkflowStatus(
   enabled: boolean,
 ): UseWorkflowStatusResult {
   const [isActive, setIsActive] = useState<boolean | null>(null)
+  const [finishedStatus, setFinishedStatus] = useState<string | null>(null)
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(POLL_SECONDS)
-  // Track the last successful check to drive the countdown display
   const lastCheckRef = useRef<number>(Date.now())
 
   useEffect(() => {
     if (!executionId || !enabled) {
-      // Reset state when disabled so the countdown doesn't tick in the background
       setIsActive(null)
+      setFinishedStatus(null)
       setSecondsUntilNextCheck(POLL_SECONDS)
       return
     }
@@ -46,6 +48,7 @@ export function useWorkflowStatus(
         const data = await res.json().catch(() => null)
         if (cancelled || !data) return
         setIsActive(Boolean(data.active))
+        if (!data.active && data.status) setFinishedStatus(data.status)
       } catch {
         // Keep previous state on transient error; avoid spurious redirects.
       } finally {
@@ -68,5 +71,5 @@ export function useWorkflowStatus(
     }
   }, [executionId, enabled])
 
-  return { isActive, secondsUntilNextCheck }
+  return { isActive, finishedStatus, secondsUntilNextCheck }
 }
