@@ -2,9 +2,10 @@ import React, { useEffect, useState } from "react";
 import CleanSmartForm from "./components/CleanSmartForm";
 import CleanSmartData from "./components/CleanSmartData";
 import DashSmart from "./components/DashSmart";
+import RdvDuJour from "./components/RdvDuJour";
 
 type View = "form" | "data";
-type Page = "cleansmart" | "dashsmart";
+type Page = "cleansmart" | "dashsmart" | "rdvdujour";
 type AgencyType = "Mandataire" | "Agence";
 type AgentName = "Bilal" | "Younes";
 
@@ -17,7 +18,9 @@ const App: React.FC = () => {
   const [agent, setAgent] = useState<AgentName | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
   const showHeader =
-    page === "dashsmart" || (page === "cleansmart" && view === "form");
+    page === "dashsmart" ||
+    page === "rdvdujour" ||
+    (page === "cleansmart" && view === "form");
 
   /**
    * On mount, check if a previous execution was left dangling (e.g. the user
@@ -92,6 +95,17 @@ const App: React.FC = () => {
             >
               DashSmart
             </button>
+            <button
+              type="button"
+              onClick={() => setPage("rdvdujour")}
+              className={`cursor-pointer rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                page === "rdvdujour"
+                  ? "bg-white text-[#1B7ED4]"
+                  : "text-white/80 hover:text-white"
+              }`}
+            >
+              RDV du jour
+            </button>
           </nav>
         </header>
       )}
@@ -131,11 +145,17 @@ const App: React.FC = () => {
             </p>
           </div>
         </main>
-      ) : (
-        // DashSmart: large centered container at 97% width/height of the remaining viewport
+      ) : page === "dashsmart" ? (
         <main className="flex-1 flex items-center justify-center">
           <div className="w-[97%] h-[97%] rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden flex mb-8 mt-8">
             <DashSmart />
+          </div>
+        </main>
+      ) : (
+        // RDV du jour: large centered container
+        <main className="flex-1 flex items-center justify-center">
+          <div className="w-[97%] h-[97%] rounded-2xl bg-gray-50 shadow-2xl border border-gray-100 overflow-hidden flex mb-8 mt-8">
+            <RdvDuJour />
           </div>
         </main>
       )}
