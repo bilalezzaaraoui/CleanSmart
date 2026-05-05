@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
 type AgentName = 'Bilal' | 'Younes'
 type TypeContact = 'Agence' | 'Mandataire'
@@ -20,9 +21,21 @@ function todayISO() {
   return new Date().toISOString().split('T')[0]
 }
 
+function formatDateFR(iso: string): string {
+  if (!iso) return '—'
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${y}`
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 9)
 }
+
+const HEURES_30MIN = Array.from({ length: 48 }, (_, i) => {
+  const h = String(Math.floor(i / 2)).padStart(2, '0')
+  const m = i % 2 === 0 ? '00' : '30'
+  return `${h}:${m}`
+}).filter((h) => h >= '08:00' && h <= '19:30')
 
 const SHOW_STATUT_COLORS: Record<ShowStatut, string> = {
   'À compléter': 'bg-gray-100 text-gray-500',
@@ -56,14 +69,62 @@ function LeadLink({ url }: { url: string }) {
   )
 }
 
+function EditableLink({ url, onSave }: { url: string; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(url)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const open = () => {
+    setDraft(url)
+    setEditing(true)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  const commit = () => {
+    onSave(draft)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="url"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+        placeholder="https://..."
+        className="w-full rounded border border-[#1B7ED4] px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-[#1B7ED4]/20"
+      />
+    )
+  }
+
+  return (
+    <span className="flex items-center gap-1 group">
+      <LeadLink url={url} />
+      <button
+        type="button"
+        onClick={open}
+        className="text-gray-300 hover:text-[#1B7ED4] transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+        title="Modifier le lien"
+      >
+        <PencilIcon />
+      </button>
+    </span>
+  )
+}
+
 // Inline editable cell — shows value + pencil; clicking pencil opens an input
 function EditableCell({
   value,
+  display,
   type,
   onSave,
   displayClass = 'text-gray-500',
 }: {
   value: string
+  display?: string
   type: 'date' | 'time' | 'text'
   onSave: (v: string) => void
   displayClass?: string
@@ -99,7 +160,7 @@ function EditableCell({
 
   return (
     <span className="flex items-center gap-1 group">
-      <span className={displayClass}>{value || '—'}</span>
+      <span className={displayClass}>{display ?? value ?? '—'}</span>
       <button
         type="button"
         onClick={open}
@@ -152,7 +213,7 @@ const FAKE_DATA: Rdv[] = [
 const RdvDuJour: React.FC = () => {
   const [activeAgent, setActiveAgent] = useState<AgentName>('Bilal')
   const [rdvList, setRdvList] = useState<Rdv[]>(FAKE_DATA)
-  const [view, setView] = useState<'main' | 'dashboard'>('main')
+  const [view, setView] = useState<'main' | 'historique' | 'rdvshow' | 'noshow' | 'rdvfutur'>('main')
   const [noshowSearch, setNoshowSearch] = useState('')
   const [dashSearch, setDashSearch] = useState('')
 
@@ -168,25 +229,44 @@ const RdvDuJour: React.FC = () => {
     .filter((r) => r.showStatut === 'No Show')
     .filter((r) => r.nom.toLowerCase().includes(noshowSearch.toLowerCase()))
 
-  const isValid = nom.trim() !== '' && heure !== ''
+  const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const isValid = nom.trim() !== '' && heure !== '' && typeContact !== null
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isValid) return
-    setRdvList((prev) => [
-      {
-        id: uid(),
-        urlLead: urlLead.trim(),
-        nom: nom.trim(),
-        date,
-        heure,
-        agent: activeAgent,
-        showStatut: 'À compléter',
-        commentaire: '',
-        createdAt: new Date().toISOString(),
-      },
-      ...prev,
-    ])
+    if (!isValid || submitting) return
+
+    const newRdv = {
+      id: uid(),
+      urlLead: urlLead.trim(),
+      nom: nom.trim(),
+      date,
+      heure,
+      agent: activeAgent,
+      showStatut: 'À compléter' as ShowStatut,
+      commentaire: '',
+      createdAt: new Date().toISOString(),
+    }
+
+    setSubmitting(true)
+    const { error } = await supabase.from('rdv_pris').insert({
+      link_url: newRdv.urlLead,
+      name: newRdv.nom,
+      date_heure_rdv: `${date} ${heure}:00`,
+      type: typeContact,
+      isShow: 'scheduled',
+      user: activeAgent,
+    })
+    setSubmitting(false)
+
+    if (error) {
+      console.error('Supabase insert error:', error.code, error.message, error.details, error.hint)
+      alert(`Erreur: ${error.message}`)
+      return
+    }
+
+    setRdvList((prev) => [newRdv, ...prev])
     setTypeContact(null)
     setUrlLead('')
     setNom('')
@@ -200,7 +280,18 @@ const RdvDuJour: React.FC = () => {
   const updateShowStatut = (id: string, s: ShowStatut) =>
     setRdvList((prev) => prev.map((r) => (r.id === id ? { ...r, showStatut: s } : r)))
 
-  // Barre commune aux deux vues
+  const deleteRdv = (id: string) =>
+    setRdvList((prev) => prev.filter((r) => r.id !== id))
+
+  const viewTitle: Record<typeof view, string> = {
+    main: `RDV de ${activeAgent}`,
+    historique: `Historique de ${activeAgent}`,
+    rdvshow: `Rdv show de ${activeAgent}`,
+    noshow: `No show de ${activeAgent}`,
+    rdvfutur: `Rdv futur de ${activeAgent}`,
+  }
+
+  // Barre commune à toutes les vues
   const TopBar = (
     <div className="shrink-0 flex items-center justify-between px-5 pt-4 pb-0">
       <div className="flex w-48 rounded-xl border border-gray-200 bg-gray-100 p-1">
@@ -220,19 +311,42 @@ const RdvDuJour: React.FC = () => {
         ))}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setView((v) => v === 'main' ? 'dashboard' : 'main')}
-        className="text-sm font-medium text-[#1B7ED4] hover:text-[#1569B8] hover:underline transition-colors cursor-pointer"
-      >
-        {view === 'main' ? 'Historique →' : '← Retour'}
-      </button>
+      <h1 className="text-base font-bold text-gray-800">{viewTitle[view]}</h1>
+
+      <div className="flex rounded-xl border border-gray-300 bg-gray-200 p-1 gap-0.5">
+        {([
+          { key: 'main', label: 'Today' },
+          { key: 'rdvshow', label: 'Show' },
+          { key: 'noshow', label: 'No show' },
+          { key: 'rdvfutur', label: 'Next RDV' },
+          { key: 'historique', label: '🕐' },
+        ] as { key: typeof view; label: string }[]).map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setView(key)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer select-none ${
+              view === key
+                ? 'bg-[#1B7ED4] text-white shadow-sm'
+                : 'bg-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 
-  if (view === 'dashboard') {
+  if (view === 'historique' || view === 'rdvshow' || view === 'noshow' || view === 'rdvfutur') {
     const dashFiltered = rdvList
       .filter((r) => r.agent === activeAgent)
+      .filter((r) => {
+        if (view === 'rdvshow') return r.showStatut === 'RDV Show'
+        if (view === 'noshow') return r.showStatut === 'No Show'
+        if (view === 'rdvfutur') return r.date > today
+        return true
+      })
       .filter((r) =>
         r.nom.toLowerCase().includes(dashSearch.toLowerCase()) ||
         r.date.includes(dashSearch)
@@ -248,7 +362,7 @@ const RdvDuJour: React.FC = () => {
           <div className="rounded-xl border border-gray-200 border-l-4 border-l-[#1B7ED4] bg-white shadow-sm flex-1 flex flex-col min-h-0">
             <div className="border-b border-gray-100 px-5 py-3 shrink-0 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 shrink-0">
-                <h2 className="text-sm font-semibold text-gray-800">Historique — {activeAgent}</h2>
+                <h2 className="text-sm font-semibold text-gray-800">{viewTitle[view]} — {activeAgent}</h2>
                 <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-[#1B7ED4] font-medium">
                   {dashFiltered.length}
                 </span>
@@ -314,7 +428,7 @@ const RdvDuJour: React.FC = () => {
       <div className="flex flex-1 gap-4 p-5 overflow-hidden">
 
         {/* Colonne gauche */}
-        <div className="flex w-[38%] flex-col gap-4 overflow-hidden">
+        <div className="flex w-[52%] flex-col gap-4 overflow-hidden">
 
           {/* Formulaire */}
           <div className="rounded-xl border border-gray-200 border-l-4 border-l-[#1B7ED4] bg-white shadow-sm shrink-0">
@@ -373,25 +487,29 @@ const RdvDuJour: React.FC = () => {
                 </div>
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-gray-500">Heure</label>
-                  <input
-                    type="time"
+                  <select
                     value={heure}
                     onChange={(e) => setHeure(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#1B7ED4] focus:ring-1 focus:ring-[#1B7ED4]/20 transition"
-                  />
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#1B7ED4] focus:ring-1 focus:ring-[#1B7ED4]/20 transition"
+                  >
+                    <option value="">--:--</option>
+                    {HEURES_30MIN.map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={!isValid}
+                disabled={!isValid || submitting}
                 className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.98] ${
-                  isValid
+                  isValid && !submitting
                     ? 'bg-[#1B7ED4] hover:bg-[#1569B8] text-white cursor-pointer'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                Ajouter le RDV
+                {submitting ? 'Enregistrement...' : 'Ajouter le RDV'}
               </button>
             </form>
           </div>
@@ -417,7 +535,8 @@ const RdvDuJour: React.FC = () => {
                       <th className="px-4 py-2 text-left font-medium text-gray-500">Nom du lead</th>
                       <th className="px-4 py-2 text-left font-medium text-gray-500">Date</th>
                       <th className="px-4 py-2 text-left font-medium text-gray-500">Heure</th>
-                      <th className="px-4 py-2 text-left font-medium text-gray-500">Status</th>
+                      <th className="px-4 py-2 text-center font-medium text-gray-500">Status</th>
+                      <th className="px-4 py-2 text-center font-medium text-gray-500">Supprimer</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -426,11 +545,12 @@ const RdvDuJour: React.FC = () => {
                       .sort((a, b) => a.heure.localeCompare(b.heure))
                       .map((r) => (
                         <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
-                          <td className="px-4 py-2"><LeadLink url={r.urlLead} /></td>
+                          <td className="px-4 py-2"><EditableLink url={r.urlLead} onSave={(v) => updateField(r.id, 'urlLead', v)} /></td>
                           <td className="px-4 py-2 font-medium text-gray-800">{r.nom}</td>
                           <td className="px-4 py-2">
                             <EditableCell
                               value={r.date}
+                              display={formatDateFR(r.date)}
                               type="date"
                               onSave={(v) => updateField(r.id, 'date', v)}
                             />
@@ -442,7 +562,17 @@ const RdvDuJour: React.FC = () => {
                               onSave={(v) => updateField(r.id, 'heure', v)}
                             />
                           </td>
-                          <td className="px-4 py-2 text-base">✅</td>
+                          <td className="px-4 py-2 text-base text-center">✅</td>
+                          <td className="px-4 py-2 text-base text-center">
+                            <button
+                              type="button"
+                              onClick={() => deleteRdv(r.id)}
+                              className="cursor-pointer leading-none"
+                              title="Supprimer"
+                            >
+                              ❌
+                            </button>
+                          </td>
                         </tr>
                       ))}
                   </tbody>
@@ -507,7 +637,7 @@ const RdvDuJour: React.FC = () => {
             <div className="border-b border-gray-100 px-5 py-3 shrink-0 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 shrink-0">
                 <span className="h-2 w-2 rounded-full bg-orange-400" />
-                <h2 className="text-sm font-semibold text-gray-800">Liste des noshow</h2>
+                <h2 className="text-sm font-semibold text-gray-800">Rdv non traité</h2>
                 <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs text-orange-600 font-medium">
                   {noshowList.length}
                 </span>
@@ -548,11 +678,12 @@ const RdvDuJour: React.FC = () => {
                       .sort((a, b) => b.date.localeCompare(a.date))
                       .map((r) => (
                         <tr key={r.id} className="hover:bg-orange-50/30 transition-colors">
-                          <td className="px-4 py-2"><LeadLink url={r.urlLead} /></td>
+                          <td className="px-4 py-2"><EditableLink url={r.urlLead} onSave={(v) => updateField(r.id, 'urlLead', v)} /></td>
                           <td className="px-4 py-2 font-medium text-gray-800">{r.nom}</td>
                           <td className="px-4 py-2">
                             <EditableCell
                               value={r.date}
+                              display={formatDateFR(r.date)}
                               type="date"
                               onSave={(v) => updateField(r.id, 'date', v)}
                               displayClass="text-orange-400 font-semibold"
